@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"time"
 )
 
 func main() {
@@ -41,30 +42,56 @@ func main() {
 	r, err := os.OpenFile(os.Args[2], os.O_RDONLY|os.O_SYNC, 0)
 	check(err)
 	defer r.Close()
-	logc := make(chan string)
+	statusc := make(chan string)
 	exit := make(chan struct{})
-	go logLoop(logc, exit)
+	go printLoop(statusc, exit)
 	log.Println("sending", os.Args[2])
-	copyBuffer(c, r, logc)
+	copyBuffer(c, r, statusc)
 	<-exit
 	log.Println("done")
 }
 
-func logLoop(logc chan string, exit chan struct{}) {
-	for m := range logc {
-		log.Println(m)
+func printLoop(statusc chan string, exit chan struct{}) {
+	for m := range statusc {
+		fmt.Printf(REDRAW + m)
 	}
 	exit <- struct{}{}
 }
 
-func copyBuffer(dst io.Writer, src io.Reader, logc chan string) {
-	defer close(logc)
-	buf := make([]byte, 50000000)
+const (
+	GIGABYTE = 1000000000
+	MEGABYTE = 1000000
+	KILOBYTE = 1000
+	CSI      = "\033["
+	REDRAW   = CSI + "1M\r"
+)
+
+func copyBuffer(dst io.Writer, src io.Reader, statusc chan string) {
+	defer close(statusc)
+	buf := make([]byte, 16*1024)
+	start := time.Now()
+	var ns int
+	var last float64
 	for {
 		nr, er := src.Read(buf)
 		nw, ew := dst.Write(buf[0:nr])
 		if nw > 0 {
-			logc <- fmt.Sprintf("sent %d bytes", nw)
+			ns += nw
+			if now := time.Since(start).Seconds(); now > last+1 {
+				last = now
+				avg := float64(ns) / now
+				statusc <- REDRAW
+				switch {
+				case avg >= GIGABYTE:
+					statusc <- fmt.Sprintf("%f gigabytes per second", avg/GIGABYTE)
+				case avg >= MEGABYTE:
+					statusc <- fmt.Sprintf("%f megabytes per second", avg/MEGABYTE)
+				case avg >= KILOBYTE:
+					statusc <- fmt.Sprintf("%f kilobytes per second", avg/KILOBYTE)
+				default:
+					statusc <- fmt.Sprintf("%f bytes per second", avg)
+				}
+			}
 		}
 		if ew != nil {
 			panic(ew)

@@ -9,8 +9,21 @@ import (
 	"time"
 )
 
+const (
+	GIGABYTE = 1000000000
+	MEGABYTE = 1000000
+	KILOBYTE = 1000
+	CSI      = "\033["
+	DEL1     = CSI + "1M"
+	REDRAW   = DEL1 + "\r"
+	PREFIX   = "receiver:"
+)
+func println(v ...interface{}) {
+	fmt.Println(append([]interface{}{PREFIX}, v...)...)
+}
+
 func main() {
-	log.SetPrefix("reciever: ")
+	log.SetPrefix("receiver: ")
 	log.SetFlags(0)
 	check := func(err error) {
 		if err != nil {
@@ -25,7 +38,7 @@ func main() {
 	config.CipherSuites = []uint16{
 		tls.TLS_ECDHE_ECDSA_WITH_RC4_128_SHA,
 	}
-	log.Println("connecting")
+	println("connecting")
 	c, err := tls.Dial("tcp", os.Args[1], config)
 	check(err)
 	defer c.Close()
@@ -35,26 +48,18 @@ func main() {
 	statusc := make(chan string)
 	exit := make(chan struct{})
 	go printLoop(statusc, exit)
-	log.Println("writing to", os.Args[2])
+	println("writing to", os.Args[2])
 	copyBuffer(w, c, statusc)
 	<-exit
-	log.Println("done")
+	fmt.Println("\n" + PREFIX, "done")
 }
 
 func printLoop(statusc chan string, exit chan struct{}) {
 	for m := range statusc {
-		fmt.Printf(REDRAW + m)
+		fmt.Print(REDRAW+PREFIX, " " + m)
 	}
 	exit <- struct{}{}
 }
-
-const (
-	GIGABYTE = 1000000000
-	MEGABYTE = 1000000
-	KILOBYTE = 1000
-	CSI      = "\033["
-	REDRAW   = CSI + "1M\r"
-)
 
 func copyBuffer(dst io.Writer, src io.Reader, statusc chan string) {
 	defer close(statusc)
@@ -62,33 +67,39 @@ func copyBuffer(dst io.Writer, src io.Reader, statusc chan string) {
 	start := time.Now()
 	var ns int
 	var last float64
+	update := func(now float64) {
+		last = now
+		avg := float64(ns) / now
+		var u string
+		switch {
+		case avg >= GIGABYTE:
+			u = fmt.Sprintf("%f gigabytes per second", avg/GIGABYTE)
+		case avg >= MEGABYTE:
+			u = fmt.Sprintf("%f megabytes per second", avg/MEGABYTE)
+		case avg >= KILOBYTE:
+			u = fmt.Sprintf("%f kilobytes per second", avg/KILOBYTE)
+		default:
+			u = fmt.Sprintf("%f bytes per second", avg)
+		}
+		statusc <- u
+	}
 	for {
 		nr, er := src.Read(buf)
 		nw, ew := dst.Write(buf[0:nr])
 		if nw > 0 {
 			ns += nw
-			if now := time.Since(start).Seconds(); now > last+1 {
-				last = now
-				avg := float64(ns) / now
-				switch {
-				case avg >= GIGABYTE:
-					statusc <- fmt.Sprintf("%f gigabytes per second", avg/GIGABYTE)
-				case avg >= MEGABYTE:
-					statusc <- fmt.Sprintf("%f megabytes per second", avg/MEGABYTE)
-				case avg >= KILOBYTE:
-					statusc <- fmt.Sprintf("%f kilobytes per second", avg/KILOBYTE)
-				default:
-					statusc <- fmt.Sprintf("%f bytes per second", avg)
-				}
-			}
 		}
 		if ew != nil {
 			panic(ew)
 		}
 		if er == io.EOF {
+			update(time.Since(start).Seconds())
 			return
 		} else if er != nil {
 			panic(er)
+		}
+		if now := time.Since(start).Seconds(); now > last+1 {
+			update(now)
 		}
 	}
 }

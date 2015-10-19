@@ -69,7 +69,6 @@ func statusLoop(statusc chan float64, exit chan struct{}) {
 			u = fmt.Sprintf("%f bytes per second", avg)
 		}
 		fmt.Print(REDRAW+PREFIX, " "+u)
-		time.Sleep(time.Second * 1)
 	}
 	exit <- struct{}{}
 }
@@ -79,6 +78,7 @@ func copyTo(src io.Reader, dst io.Writer, statusc chan float64) {
 	buf := make([]byte, 1024*32)
 	start := time.Now()
 	var ns int
+	var last float64
 	for {
 		nr, er := src.Read(buf)
 		nw, ew := dst.Write(buf[:nr])
@@ -94,9 +94,12 @@ func copyTo(src io.Reader, dst io.Writer, statusc chan float64) {
 		} else if er != nil {
 			panic(er)
 		}
-		select {
-		case statusc <- float64(ns) / time.Since(start).Seconds():
-		default:
+		if now := time.Since(start).Seconds(); now > last+1 {
+			last = now
+			select {
+			case statusc <- float64(ns) / now:
+			default:
+			}
 		}
 	}
 }

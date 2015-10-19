@@ -25,7 +25,7 @@ func println(v ...interface{}) {
 }
 
 func main() {
-	log.SetPrefix("sender: ")
+	log.SetPrefix(PREFIX)
 	log.SetFlags(0)
 	check := func(err error) {
 		if err != nil {

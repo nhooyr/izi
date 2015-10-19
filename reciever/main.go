@@ -18,6 +18,7 @@ const (
 	REDRAW   = DEL1 + "\r"
 	PREFIX   = "receiver:"
 )
+
 func println(v ...interface{}) {
 	fmt.Println(append([]interface{}{PREFIX}, v...)...)
 }
@@ -45,31 +46,17 @@ func main() {
 	w, err := os.Create(os.Args[2])
 	check(err)
 	defer w.Close()
-	statusc := make(chan string)
+	statusc := make(chan float64)
 	exit := make(chan struct{})
-	go printLoop(statusc, exit)
+	go statusLoop(statusc, exit)
 	println("writing to", os.Args[2])
-	copyBuffer(w, c, statusc)
+	copyTo(c, w, statusc)
 	<-exit
-	fmt.Println("\n" + PREFIX, "done")
+	fmt.Println("\n"+PREFIX, "done")
 }
 
-func printLoop(statusc chan string, exit chan struct{}) {
-	for m := range statusc {
-		fmt.Print(REDRAW+PREFIX, " " + m)
-	}
-	exit <- struct{}{}
-}
-
-func copyBuffer(dst io.Writer, src io.Reader, statusc chan string) {
-	defer close(statusc)
-	buf := make([]byte, 16*1024)
-	start := time.Now()
-	var ns int
-	var last float64
-	update := func(now float64) {
-		last = now
-		avg := float64(ns) / now
+func statusLoop(statusc chan float64, exit chan struct{}) {
+	for avg := range statusc {
 		var u string
 		switch {
 		case avg >= GIGABYTE:
@@ -81,11 +68,20 @@ func copyBuffer(dst io.Writer, src io.Reader, statusc chan string) {
 		default:
 			u = fmt.Sprintf("%f bytes per second", avg)
 		}
-		statusc <- u
+		fmt.Print(REDRAW+PREFIX, " "+u)
+		time.Sleep(time.Second * 1)
 	}
+	exit <- struct{}{}
+}
+
+func copyTo(src io.Reader, dst io.Writer, statusc chan float64) {
+	defer close(statusc)
+	buf := make([]byte, 1024*32)
+	start := time.Now()
+	var ns int
 	for {
 		nr, er := src.Read(buf)
-		nw, ew := dst.Write(buf[0:nr])
+		nw, ew := dst.Write(buf[:nr])
 		if nw > 0 {
 			ns += nw
 		}
@@ -93,13 +89,14 @@ func copyBuffer(dst io.Writer, src io.Reader, statusc chan string) {
 			panic(ew)
 		}
 		if er == io.EOF {
-			update(time.Since(start).Seconds())
+			statusc <- float64(ns) / time.Since(start).Seconds()
 			return
 		} else if er != nil {
 			panic(er)
 		}
-		if now := time.Since(start).Seconds(); now > last+1 {
-			update(now)
+		select {
+		case statusc <- float64(ns) / time.Since(start).Seconds():
+		default:
 		}
 	}
 }

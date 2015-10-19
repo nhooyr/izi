@@ -75,7 +75,7 @@ func statusLoop(statusc chan float64, exit chan struct{}) {
 
 func copyTo(src io.Reader, dst io.Writer, statusc chan float64) {
 	defer close(statusc)
-	buf := make([]byte, 1024*32)
+	buf := make([]byte, 32*1024)
 	start := time.Now()
 	var ns int
 	var last float64

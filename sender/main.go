@@ -25,7 +25,7 @@ func println(v ...interface{}) {
 }
 
 func main() {
-	log.SetPrefix(PREFIX)
+	log.SetPrefix(PREFIX + " ")
 	log.SetFlags(0)
 	check := func(err error) {
 		if err != nil {
@@ -86,9 +86,9 @@ func statusLoop(statusc chan float64, exit chan struct{}) {
 func copyTo(src io.Reader, dst io.Writer, statusc chan float64) {
 	defer close(statusc)
 	buf := make([]byte, 32*1024)
-	start := time.Now()
 	var ns int
 	var last float64
+	start := time.Now()
 	for {
 		nr, er := src.Read(buf)
 		nw, ew := dst.Write(buf[:nr])
